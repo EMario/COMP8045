@@ -144,6 +144,7 @@ struct node* find_node(uint32_t src_ip, uint16_t src_port, const char in_name[IF
 	}
 
 	while(curr->next!=NULL){
+		printk(KERN_INFO "IP:%x PORT:%x SEQ:%x N_SEQ%x ACK:%x N_ACK:%x.\n",curr->src_ip,curr->src_port,curr->curr_in_seq,curr->curr_out_seq,curr->next_in_seq,curr->next_out_seq);
 		if(curr->src_ip==src_ip){
 			if(curr->src_port==src_port){
 				if(strcmp(curr->og_dev,in_name)==0){
