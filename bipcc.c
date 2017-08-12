@@ -280,12 +280,15 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 				subnet=2;
 			}
 			if(subnet_src!=1){
+				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 				tcph->seq=decode_uint32(tcph->seq);
 				tcph->ack_seq=decode_uint32(tcph->ack_seq);
+				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 			curr_node=find_node_subnet(iph->saddr,tcph->source);
 			if(curr_node!=NULL){
 				if(curr_node->del!=1 && curr_node->subnet==1){
+					printk(KERN_INFO "Dropping the packet, port and ip in use.\n");
 					return NF_DROP;
 				}
 			}
@@ -293,27 +296,34 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 			if(curr_node==NULL){
 				add_node(iph->saddr, tcph->source,tcph->seq,tcph->ack_seq,flags,subnet,in->name);
 			} else {
-				return NF_DROP;
+				printk(KERN_INFO "Dropping the packet, packet and seq exists.\n");
+				//return NF_DROP;
 			}
 			if(subnet_dst!=1){
+				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 				tcph->seq=encode_uint32(tcph->seq);
 				tcph->ack_seq=encode_uint32(tcph->ack_seq);
+				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 		} else {
 			curr_node=find_node(iph->saddr, tcph->source, in->name,tcph->seq, tcph->ack_seq);
 			size=ntohs(iph->tot_len) - (tcph->doff*4) - (iph->ihl*4);
 			if(curr_node==NULL){
-				return NF_DROP;
+				printk(KERN_INFO "Dropping the packet, packet not found.\n");
+				//return NF_DROP;
 			} else {
 				if(curr_node->del==1){
-					if(curr_node->curr->flag!=10001 && flags!=10000){
-						return NF_DROP;
+					if(curr_node->flag!=10001 && flags!=10000){
+						printk(KERN_INFO "Dropping the packet.\n");
+						//return NF_DROP;
 					}
 				}
 			}
 			if(curr_node->subnet!=1){
+				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 				tcph->seq=decode_uint32(tcph->seq);
 				tcph->ack_seq=decode_uint32(tcph->ack_seq);
+				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 			if(flags==10010){//SYN/ACK
 				if(strcmp(in->name,curr->og_dev)==0){
@@ -378,8 +388,10 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 
 			}
 			if(curr_node->subnet!=2){
+				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 				tcph->seq=encode_uint32(tcph->seq);
 				tcph->ack_seq=encode_uint32(tcph->ack_seq);
+				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 		}
 	}
@@ -501,6 +513,7 @@ static int __init start(void){
 
 static void __exit cleanup(void){
 	nf_unregister_hook(&nfho_fwd);
+	erase_nodes();
 	printk(KERN_INFO "...Removing Covert Channel.\n");
 }
 
