@@ -96,10 +96,14 @@ uint32_t decode_uint32(uint32_t enc_value){
 void add_node(uint32_t src_ip,uint16_t src_port, uint32_t seq,uint32_t ack,int flag,short int subnet,const char dev_name[IFNAMSIZ]){
 	//Linked list node starter, it's created when a SYN packet comes through
 	struct node *new_node = (struct node*) kmalloc (sizeof(struct node),GFP_USER);
+	int next_seq;
 	new_node->src_ip=src_ip;
 	new_node->src_port=src_port;
 	new_node->curr_in_seq=seq;
-	new_node->next_in_seq=seq+1;
+	next_seq=switch_order(seq);
+	next_seq++;
+	next_seq=switch_order(next_seq);
+	new_node->next_in_seq=next_seq;
 	new_node->curr_out_seq=ack;
 	new_node->next_out_seq=ack;
 	new_node->flag=flag;
@@ -108,6 +112,20 @@ void add_node(uint32_t src_ip,uint16_t src_port, uint32_t seq,uint32_t ack,int f
 	new_node->subnet=subnet;
 	new_node->next=head;
 	head=new_node;
+}
+
+
+void print_all_nodes(void){
+	struct node* curr = head;
+	if(head == NULL){
+		return;
+	}
+	while(curr->next!=NULL){
+		printk(KERN_INFO "IP:%x PORT:%x SEQ:%x N_SEQ:%x ACK:%x N_ACK:%x.\n",curr->src_ip,curr->src_port,curr->curr_in_seq,curr->curr_out_seq,curr->next_in_seq,curr->next_out_seq);
+		curr=curr->next;
+	}
+	printk(KERN_INFO "IP:%x PORT:%x SEQ:%x N_SEQ%x ACK:%x N_ACK:%x.\n",curr->src_ip,curr->src_port,curr->curr_in_seq,curr->curr_out_seq,curr->next_in_seq,curr->next_out_seq);
+	
 }
 
 struct node* find_node_subnet(uint32_t src_ip, uint16_t src_port){
@@ -136,28 +154,33 @@ struct node* find_node_subnet(uint32_t src_ip, uint16_t src_port){
 	return NULL;
 }
 
-struct node* find_node(uint32_t src_ip, uint16_t src_port, const char in_name[IFNAMSIZ],uint32_t seq,uint32_t ack){
+
+struct node* find_node(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint32_t dst_port, const char in_name[IFNAMSIZ],uint32_t seq,uint32_t ack){
 	struct node* curr = head;
-	uint32_t seq_val;
+	uint32_t seq_val,ip_val;
+	uint16_t port_val;
 	if(head == NULL){
 		return NULL;
 	}
 
 	while(curr->next!=NULL){
-		printk(KERN_INFO "IP:%x PORT:%x SEQ:%x N_SEQ%x ACK:%x N_ACK:%x.\n",curr->src_ip,curr->src_port,curr->curr_in_seq,curr->curr_out_seq,curr->next_in_seq,curr->next_out_seq);
-		if(curr->src_ip==src_ip){
-			if(curr->src_port==src_port){
-				if(strcmp(curr->og_dev,in_name)==0){
-					seq_val=seq;
-					if(curr->subnet!=1){
-						seq_val=decode_uint32(seq_val);
-					}
-				} else {
-					seq_val=ack;
-					if(curr->subnet!=2){
-						seq_val=decode_uint32(seq_val);
-					}
-				}
+		if(strcmp(curr->og_dev,in_name)==0){
+			seq_val=seq;
+			ip_val=src_ip;
+			port_val=src_port;
+			if(curr->subnet!=1){
+				seq_val=decode_uint32(seq_val);
+			}
+		} else {
+			seq_val=ack;
+			ip_val=dst_ip;
+			port_val=dst_port;
+			if(curr->subnet!=2){
+				seq_val=decode_uint32(seq_val);
+			}
+		}
+		if(curr->src_ip==ip_val){
+			if(curr->src_port==port_val){
 				if(curr->curr_in_seq==seq_val || curr->next_in_seq==seq_val){
 					return curr;
 				}
@@ -165,19 +188,26 @@ struct node* find_node(uint32_t src_ip, uint16_t src_port, const char in_name[IF
 		}
 		curr=curr->next;
 	}
-	if(curr->src_ip==src_ip){
-		if(curr->src_port==src_port){
-			if(strcmp(curr->og_dev,in_name)==0){
-				seq_val=seq;
-				if(curr->subnet!=1){
-					seq_val=decode_uint32(seq_val);
-				}
-			} else {
-				seq_val=ack;
-				if(curr->subnet!=2){
-					seq_val=decode_uint32(seq_val);
-				}
-			}
+	if(strcmp(curr->og_dev,in_name)==0){
+		seq_val=seq;
+		ip_val=src_ip;
+		port_val=src_port;
+		if(curr->subnet!=1){
+			seq_val=decode_uint32(seq_val);
+		}
+	} else {
+		seq_val=ack;
+		ip_val=dst_ip;
+		port_val=dst_port;
+		if(curr->subnet!=2){
+			seq_val=decode_uint32(seq_val);
+		}
+	}
+	printk(KERN_INFO "Adress:%x, %x\n",curr->src_ip,ip_val);
+	printk(KERN_INFO "Port:%x, %x\n",curr->src_port,port_val);
+	printk(KERN_INFO "SEQ:%x, %x, ACK: %x\n",curr->curr_in_seq,seq_val, ack);
+	if(curr->src_ip==ip_val){
+		if(curr->src_port==port_val){
 			if(curr->curr_in_seq==seq_val || curr->next_in_seq==seq_val){
 				return curr;
 			}
@@ -293,7 +323,7 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 					return NF_DROP;
 				}
 			}
-			curr_node=find_node(iph->saddr, tcph->source, in->name,tcph->seq, tcph->ack_seq);
+			curr_node=find_node(iph->saddr, tcph->source, iph->daddr, tcph->dest, in->name,tcph->seq, tcph->ack_seq);
 			if(curr_node==NULL){
 				add_node(iph->saddr, tcph->source,tcph->seq,tcph->ack_seq,flags,subnet,in->name);
 			} else {
@@ -307,12 +337,14 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 		} else {
-			curr_node=find_node(iph->saddr, tcph->source, in->name,tcph->seq, tcph->ack_seq);
-			size=ntohs(iph->tot_len) - (tcph->doff*4) - (iph->ihl*4);
+			printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
+			//print_all_nodes();
+			curr_node=find_node(iph->saddr, tcph->source, iph->daddr, tcph->dest, in->name,tcph->seq, tcph->ack_seq);
 			if(curr_node==NULL){
 				printk(KERN_INFO "Dropping the packet, packet not found.\n");
 				//return NF_DROP;
 			} else {
+				printk(KERN_INFO "Packet found!!!");
 				if(curr_node->del==1){
 					if(curr_node->flag!=10001 && flags!=10000){
 						printk(KERN_INFO "Dropping the packet.\n");
@@ -320,6 +352,8 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 					}
 				}
 			}
+			size=0;
+			/*size=ntohs(iph->tot_len) - (tcph->doff*4) - (iph->ihl*4);
 			if(curr_node->subnet!=1){
 				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 				tcph->seq=decode_uint32(tcph->seq);
@@ -394,7 +428,7 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 				tcph->ack_seq=encode_uint32(tcph->ack_seq);
 				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
-		}
+*/		}
 	}
 	return NF_ACCEPT;
 }
