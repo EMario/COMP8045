@@ -114,6 +114,10 @@ void add_node(uint32_t src_ip,uint16_t src_port, uint32_t seq,uint32_t ack,int f
 	head=new_node;
 }
 
+void update_node(uint32_t src){
+
+}
+
 
 void print_all_nodes(void){
 	struct node* curr = head;
@@ -157,7 +161,7 @@ struct node* find_node_subnet(uint32_t src_ip, uint16_t src_port){
 
 struct node* find_node(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint32_t dst_port, const char in_name[IFNAMSIZ],uint32_t seq,uint32_t ack){
 	struct node* curr = head;
-	uint32_t seq_val,ip_val;
+	uint32_t seq_val,ack_val,ip_val;
 	uint16_t port_val;
 	if(head == NULL){
 		return NULL;
@@ -166,23 +170,28 @@ struct node* find_node(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint
 	while(curr->next!=NULL){
 		if(strcmp(curr->og_dev,in_name)==0){
 			seq_val=seq;
+			ack_val=ack;
 			ip_val=src_ip;
 			port_val=src_port;
 			if(curr->subnet!=1){
-				seq_val=decode_uint32(seq_val);
+				printk(KERN_INFO "Decoding...\n");
+				//seq_val=decode_uint32(seq_val);
 			}
 		} else {
 			seq_val=ack;
+			ack_val=seq;
 			ip_val=dst_ip;
 			port_val=dst_port;
 			if(curr->subnet!=2){
-				seq_val=decode_uint32(seq_val);
+				printk(KERN_INFO "Decoding...\n");
+				//seq_val=decode_uint32(seq_val);
 			}
 		}
 		if(curr->src_ip==ip_val){
 			if(curr->src_port==port_val){
 				if(curr->curr_in_seq==seq_val || curr->next_in_seq==seq_val){
-					return curr;
+					if((curr->curr_out_seq==0x0 && curr->next_out_seq==0x0) || curr->curr_out_seq==ack_val || curr->next_out_seq==ack_val)
+						return curr;
 				}
 			}	
 		}
@@ -190,25 +199,30 @@ struct node* find_node(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint
 	}
 	if(strcmp(curr->og_dev,in_name)==0){
 		seq_val=seq;
+		ack_val=ack;
 		ip_val=src_ip;
 		port_val=src_port;
 		if(curr->subnet!=1){
-			seq_val=decode_uint32(seq_val);
+			printk(KERN_INFO "Decoding...\n");
+			//seq_val=decode_uint32(seq_val);
 		}
 	} else {
 		seq_val=ack;
+		ack_val=seq;
 		ip_val=dst_ip;
 		port_val=dst_port;
 		if(curr->subnet!=2){
-			seq_val=decode_uint32(seq_val);
+			printk(KERN_INFO "Decoding...\n");
+			//seq_val=decode_uint32(seq_val);
 		}
 	}
-	printk(KERN_INFO "Adress:%x, %x\n",curr->src_ip,ip_val);
-	printk(KERN_INFO "Port:%x, %x\n",curr->src_port,port_val);
-	printk(KERN_INFO "SEQ:%x, %x, ACK: %x\n",curr->curr_in_seq,seq_val, ack);
 	if(curr->src_ip==ip_val){
+		printk(KERN_INFO "Adress:%x, %x\n",curr->src_ip,ip_val);
 		if(curr->src_port==port_val){
+			printk(KERN_INFO "SEQ:%x, N_SEQ: %x, RECV: %x\n",curr->curr_in_seq,curr->next_in_seq, seq_val);
+			printk(KERN_INFO "SEQ:%x, N_SEQ: %x, RECV: %x\n",curr->curr_out_seq,curr->next_out_seq, ack_val);
 			if(curr->curr_in_seq==seq_val || curr->next_in_seq==seq_val){
+				if(curr->curr_out_seq==ack_val || curr->next_out_seq==ack_val || (curr->curr_out_seq==0x0 && curr->next_out_seq==0x0))
 				return curr;
 			}
 		}	
@@ -293,6 +307,7 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 	struct tcphdr *tcph;
 	struct node *curr_node;
 	int flags=0,subnet_src=0,subnet_dst=0,subnet=0,size;
+	uint32_t aux;
 	iph = (struct iphdr*)skb_network_header(skb);
 	if(iph->protocol==IPPROTO_TCP){
 		printk(KERN_INFO "TCP PACKET FORWARDING...\n");		
@@ -312,6 +327,7 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 			}
 			if(subnet_src!=1){
 				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
+				//printk(KERN_INFO "Decoding...\n");
 				tcph->seq=decode_uint32(tcph->seq);
 				tcph->ack_seq=decode_uint32(tcph->ack_seq);
 				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
@@ -332,8 +348,9 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 			}
 			if(subnet_dst!=1){
 				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
-				tcph->seq=encode_uint32(tcph->seq);
-				tcph->ack_seq=encode_uint32(tcph->ack_seq);
+				printk(KERN_INFO "Encoding...\n");
+				//tcph->seq=encode_uint32(tcph->seq);
+				//tcph->ack_seq=encode_uint32(tcph->ack_seq);
 				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 		} else {
@@ -343,65 +360,99 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 			if(curr_node==NULL){
 				printk(KERN_INFO "Dropping the packet, packet not found.\n");
 				//return NF_DROP;
+				return NF_ACCEPT;
 			} else {
-				printk(KERN_INFO "Packet found!!!");
+				printk(KERN_INFO "Packet found!!!\n");
 				if(curr_node->del==1){
 					if(curr_node->flag!=10001 && flags!=10000){
 						printk(KERN_INFO "Dropping the packet.\n");
 						//return NF_DROP;
+						return NF_ACCEPT;
 					}
 				}
 			}
-			size=0;
-			/*size=ntohs(iph->tot_len) - (tcph->doff*4) - (iph->ihl*4);
+			size=ntohs(iph->tot_len) - (tcph->doff*4) - (iph->ihl*4);
+			printk("Flags: %d\n",flags);
 			if(curr_node->subnet!=1){
-				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
-				tcph->seq=decode_uint32(tcph->seq);
-				tcph->ack_seq=decode_uint32(tcph->ack_seq);
-				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
+				printk(KERN_INFO "Decoding SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
+				//tcph->seq=decode_uint32(tcph->seq);
+				//tcph->ack_seq=decode_uint32(tcph->ack_seq);
+				printk(KERN_INFO "Decoding SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 			if(flags==10010){//SYN/ACK
-				if(strcmp(in->name,curr->og_dev)==0){
-					curr_node->curr_in_seq=tcph->seq;
-					curr_node->next_in_seq=tcph->seq+1;
+				if(strcmp(in->name,curr_node->og_dev)==0){
+					curr_node->curr_in_seq=tcph->ack_seq;
+					aux= switch_order(tcph->ack_seq);
+					aux=aux+1;
+					aux= switch_order(aux);
+					curr_node->next_in_seq=aux;
 				} else {
-					curr_node->curr_out_seq=tcph->ack_seq;
-					curr_node->next_out_seq=tcph->ack_seq+1;
+					curr_node->curr_out_seq=tcph->seq;
+					aux= switch_order(tcph->seq);
+					aux=aux+1;
+					aux= switch_order(aux);
+					curr_node->next_out_seq=aux;
+					printk(KERN_INFO "CURR_NODE ACK: %x\n",curr_node->curr_out_seq);
 				}
-				curr->flag=10010;
+				curr_node->flag=10010;
 			} else if (flags==10000){//ACK
-				size=ntohs(iph->tot_len) - (tcph->doff*4) - (iph->ihl*4);
-				if(strcmp(in->name,curr->og_dev)==0){
+				if(strcmp(in->name,curr_node->og_dev)==0){
 					curr_node->curr_in_seq=tcph->seq;
-					curr_node->next_in_seq=tcph->seq+size;
-				} else {
-					curr_node->curr_out_seq=tcph->ack_seq;
-					curr_node->next_out_seq=tcph->ack_seq+size;
-				}
-				if(curr->flag!=10001){
-					curr->flag=10000;
-				} else {
-					curr->del=1;
-				}
-			} else if (flags==1){//FIN
-				if(strcmp(in->name,curr->og_dev)==0){
-					curr_node->curr_in_seq=tcph->seq;
-					curr_node->next_in_seq=tcph->seq;
-				} else {
+					aux= switch_order(tcph->seq);
+					aux=aux+size;
+					aux= switch_order(aux);
+					curr_node->next_in_seq=aux;
 					curr_node->curr_out_seq=tcph->ack_seq;
 					curr_node->next_out_seq=tcph->ack_seq;
-				}
-				curr->flag=1;
-			} else if (flags==10001){//FIN/ACK
-				if(strcmp(in->name,curr->og_dev)==0){
-					curr_node->curr_in_seq=tcph->seq;
-					curr_node->next_in_seq=tcph->seq+1;
 				} else {
-					curr_node->curr_out_seq=tcph->ack_seq;
-					curr_node->next_out_seq=tcph->ack_seq+1;
+					curr_node->curr_out_seq=tcph->seq;
+					aux= switch_order(tcph->seq);
+					aux=aux+size;
+					aux= switch_order(aux);
+					curr_node->next_out_seq=aux;
+					curr_node->curr_in_seq=tcph->ack_seq;
+					curr_node->next_in_seq=tcph->ack_seq;
 				}
-				curr->flag=10001;
+				if(curr_node->flag!=10001){
+					curr_node->flag=10000;
+				} else {
+					curr_node->del=1;
+				}
+			} else if (flags==1 || flags==10001){//FIN/ACK
+				if(strcmp(in->name,curr_node->og_dev)==0){
+					curr_node->curr_in_seq=tcph->seq;
+					aux=switch_order(tcph->seq);
+					aux=aux+1;
+					aux= switch_order(aux);
+					curr_node->next_in_seq=aux;
+				} else {
+					curr_node->curr_out_seq=tcph->seq;
+					aux=switch_order(tcph->seq);
+					aux=aux+1;
+					aux= switch_order(aux);
+					curr_node->next_out_seq=aux;
+				}
+				curr_node->flag=flags;
 			} else if (flags==11000){//PUSH/ACK
+				if(strcmp(in->name,curr_node->og_dev)==0){
+					curr_node->curr_in_seq=tcph->seq;
+					aux= switch_order(tcph->seq);
+					aux=aux+size;
+					aux= switch_order(aux);
+					curr_node->next_in_seq=aux;
+					curr_node->curr_out_seq=tcph->ack_seq;
+					curr_node->next_out_seq=tcph->ack_seq;
+				} else {
+					curr_node->curr_out_seq=tcph->seq;
+					aux= switch_order(tcph->seq);
+					aux=aux+size;
+					aux= switch_order(aux);
+					curr_node->next_out_seq=aux;
+					curr_node->curr_in_seq=tcph->ack_seq;
+					curr_node->next_in_seq=tcph->ack_seq;
+				}
+				curr_node->flag=11000;
+			}/* else if (flags==1000){//PUSH
 				size=ntohs(iph->tot_len) - (tcph->doff*4) - (iph->ihl*4);
 				if(strcmp(in->name,curr->og_dev)==0){
 					curr_node->curr_in_seq=tcph->seq;
@@ -411,24 +462,14 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 					curr_node->next_out_seq=tcph->ack_seq+size;
 				}
 
-			} else if (flags==1000){//PUSH
-				size=ntohs(iph->tot_len) - (tcph->doff*4) - (iph->ihl*4);
-				if(strcmp(in->name,curr->og_dev)==0){
-					curr_node->curr_in_seq=tcph->seq;
-					curr_node->next_in_seq=tcph->seq+size;
-				} else {
-					curr_node->curr_out_seq=tcph->ack_seq;
-					curr_node->next_out_seq=tcph->ack_seq+size;
-				}
-
-			}
+			}*/
 			if(curr_node->subnet!=2){
-				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
-				tcph->seq=encode_uint32(tcph->seq);
-				tcph->ack_seq=encode_uint32(tcph->ack_seq);
-				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
+				printk(KERN_INFO "Encoding SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
+				//tcph->seq=encode_uint32(tcph->seq);
+				//tcph->ack_seq=encode_uint32(tcph->ack_seq);
+				printk(KERN_INFO "Encoding SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
-*/		}
+		}
 	}
 	return NF_ACCEPT;
 }
