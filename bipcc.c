@@ -22,6 +22,7 @@
 #include <linux/version.h>
 #include <linux/device.h>
 #include <linux/netfilter.h>
+#include <linux/rcupdate.h>
 
 #include <linux/net.h>
 #include <linux/tcp.h>
@@ -308,6 +309,7 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 	struct node *curr_node;
 	int flags=0,subnet_src=0,subnet_dst=0,subnet=0,size;
 	uint32_t aux;
+	rcu_read_lock();
 	iph = (struct iphdr*)skb_network_header(skb);
 	if(iph->protocol==IPPROTO_TCP){
 		printk(KERN_INFO "TCP PACKET FORWARDING...\n");		
@@ -344,13 +346,14 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 				add_node(iph->saddr, tcph->source,tcph->seq,tcph->ack_seq,flags,subnet,in->name);
 			} else {
 				printk(KERN_INFO "Dropping the packet, packet and seq exists.\n");
+				//rcu_read_unlock();
 				//return NF_DROP;
 			}
 			if(subnet_dst!=1){
 				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 				printk(KERN_INFO "Encoding...\n");
-				//tcph->seq=encode_uint32(tcph->seq);
-				//tcph->ack_seq=encode_uint32(tcph->ack_seq);
+				tcph->seq=encode_uint32(tcph->seq);
+				tcph->ack_seq=encode_uint32(tcph->ack_seq);
 				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 		} else {
@@ -359,6 +362,7 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 			curr_node=find_node(iph->saddr, tcph->source, iph->daddr, tcph->dest, in->name,tcph->seq, tcph->ack_seq);
 			if(curr_node==NULL){
 				printk(KERN_INFO "Dropping the packet, packet not found.\n");
+				rcu_read_unlock();
 				//return NF_DROP;
 				return NF_ACCEPT;
 			} else {
@@ -366,6 +370,7 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 				if(curr_node->del==1){
 					if(curr_node->flag!=10001 && flags!=10000){
 						printk(KERN_INFO "Dropping the packet.\n");
+						rcu_read_unlock();
 						//return NF_DROP;
 						return NF_ACCEPT;
 					}
@@ -471,6 +476,7 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 			}
 		}
 	}
+	rcu_read_unlock();
 	return NF_ACCEPT;
 }
 
