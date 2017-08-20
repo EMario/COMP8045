@@ -169,14 +169,15 @@ struct node* find_node(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint
 	}
 
 	while(curr->next!=NULL){
+		printk(KERN_INFO "Subnet: %d\n",curr->subnet);
 		if(strcmp(curr->og_dev,in_name)==0){
 			seq_val=seq;
 			ack_val=ack;
 			ip_val=src_ip;
 			port_val=src_port;
 			if(curr->subnet!=1){
-				printk(KERN_INFO "Decoding...\n");
-				//seq_val=decode_uint32(seq_val);
+				printk(KERN_INFO "Subnet type 1, Decoding...\n");
+				seq_val=decode_uint32(seq_val);
 			}
 		} else {
 			seq_val=ack;
@@ -184,8 +185,8 @@ struct node* find_node(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint
 			ip_val=dst_ip;
 			port_val=dst_port;
 			if(curr->subnet!=2){
-				printk(KERN_INFO "Decoding...\n");
-				//seq_val=decode_uint32(seq_val);
+				printk(KERN_INFO "Subnet type 2, Decoding...\n");
+				seq_val=decode_uint32(seq_val);
 			}
 		}
 		if(curr->src_ip==ip_val){
@@ -198,14 +199,15 @@ struct node* find_node(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint
 		}
 		curr=curr->next;
 	}
+	printk(KERN_INFO "Subnet: %d\n",curr->subnet);
 	if(strcmp(curr->og_dev,in_name)==0){
 		seq_val=seq;
 		ack_val=ack;
 		ip_val=src_ip;
 		port_val=src_port;
 		if(curr->subnet!=1){
-			printk(KERN_INFO "Decoding...\n");
-			//seq_val=decode_uint32(seq_val);
+			printk(KERN_INFO "Subnet type 2 Decoding...\n");
+			seq_val=decode_uint32(seq_val);
 		}
 	} else {
 		seq_val=ack;
@@ -213,8 +215,8 @@ struct node* find_node(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint
 		ip_val=dst_ip;
 		port_val=dst_port;
 		if(curr->subnet!=2){
-			printk(KERN_INFO "Decoding...\n");
-			//seq_val=decode_uint32(seq_val);
+			printk(KERN_INFO "Subnet Type 1 Decoding...\n");
+			seq_val=decode_uint32(seq_val);
 		}
 	}
 	if(curr->src_ip==ip_val){
@@ -357,6 +359,7 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 		} else {
+			printk("Flags: %d\n",flags);
 			printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			//print_all_nodes();
 			curr_node=find_node(iph->saddr, tcph->source, iph->daddr, tcph->dest, in->name,tcph->seq, tcph->ack_seq);
@@ -377,11 +380,10 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 				}
 			}
 			size=ntohs(iph->tot_len) - (tcph->doff*4) - (iph->ihl*4);
-			printk("Flags: %d\n",flags);
-			if(curr_node->subnet!=1){
+			if(curr_node->subnet==0 || (curr_node->subnet==1 && strcmp(curr_node->og_dev,in->name)!=0) || (curr_node->subnet==2 && strcmp(curr_node->og_dev,in->name)==0)){
 				printk(KERN_INFO "Decoding SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
-				//tcph->seq=decode_uint32(tcph->seq);
-				//tcph->ack_seq=decode_uint32(tcph->ack_seq);
+				tcph->seq=decode_uint32(tcph->seq);
+				tcph->ack_seq=decode_uint32(tcph->ack_seq);
 				printk(KERN_INFO "Decoding SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 			if(flags==10010){//SYN/ACK
@@ -468,10 +470,10 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 				}
 
 			}*/
-			if(curr_node->subnet!=2){
+			if(curr_node->subnet==0 || (curr_node->subnet==1 && strcmp(curr_node->og_dev,in->name)==0) || (curr_node->subnet==2 && strcmp(curr_node->og_dev,in->name)!=0)){
 				printk(KERN_INFO "Encoding SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
-				//tcph->seq=encode_uint32(tcph->seq);
-				//tcph->ack_seq=encode_uint32(tcph->ack_seq);
+				tcph->seq=encode_uint32(tcph->seq);
+				tcph->ack_seq=encode_uint32(tcph->ack_seq);
 				printk(KERN_INFO "Encoding SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 		}
