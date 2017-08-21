@@ -178,6 +178,7 @@ struct node* find_node(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint
 			if(curr->subnet!=1){
 				printk(KERN_INFO "Subnet type 1, Decoding...\n");
 				seq_val=decode_uint32(seq_val);
+				ack_val=decode_uint32(ack_val);
 			}
 		} else {
 			seq_val=ack;
@@ -187,6 +188,7 @@ struct node* find_node(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint
 			if(curr->subnet!=2){
 				printk(KERN_INFO "Subnet type 2, Decoding...\n");
 				seq_val=decode_uint32(seq_val);
+				ack_val=decode_uint32(ack_val);
 			}
 		}
 		if(curr->src_ip==ip_val){
@@ -208,6 +210,7 @@ struct node* find_node(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint
 		if(curr->subnet!=1){
 			printk(KERN_INFO "Subnet type 2 Decoding...\n");
 			seq_val=decode_uint32(seq_val);
+			ack_val=decode_uint32(ack_val);
 		}
 	} else {
 		seq_val=ack;
@@ -217,6 +220,7 @@ struct node* find_node(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint
 		if(curr->subnet!=2){
 			printk(KERN_INFO "Subnet Type 1 Decoding...\n");
 			seq_val=decode_uint32(seq_val);
+			ack_val=decode_uint32(ack_val);
 		}
 	}
 	if(curr->src_ip==ip_val){
@@ -314,11 +318,14 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 	rcu_read_lock();
 	iph = (struct iphdr*)skb_network_header(skb);
 	if(iph->protocol==IPPROTO_TCP){
+		printk(KERN_INFO "-------------------------------------\n");	
 		printk(KERN_INFO "TCP PACKET FORWARDING...\n");		
 		tcph = (struct tcphdr*)skb_transport_header(skb);
 		flags=get_flags(tcph);
 		if(flags==10){ 
 			// SYN PACKET RECEIVED
+			printk(KERN_INFO "------------------SYN---------------\n");	
+			printk(KERN_INFO " RECEIVED: SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			neigh=ipv4_neigh_lookup(&iph->saddr,in);
 			if(neigh!=NULL){
 				subnet_src=1;
@@ -330,11 +337,9 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 				subnet=2;
 			}
 			if(subnet_src!=1){
-				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
-				//printk(KERN_INFO "Decoding...\n");
 				tcph->seq=decode_uint32(tcph->seq);
 				tcph->ack_seq=decode_uint32(tcph->ack_seq);
-				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
+				printk(KERN_INFO "After Decoding: SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 			curr_node=find_node_subnet(iph->saddr,tcph->source);
 			if(curr_node!=NULL){
@@ -352,15 +357,13 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 				//return NF_DROP;
 			}
 			if(subnet_dst!=1){
-				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
-				printk(KERN_INFO "Encoding...\n");
 				tcph->seq=encode_uint32(tcph->seq);
 				tcph->ack_seq=encode_uint32(tcph->ack_seq);
-				printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
+				printk(KERN_INFO "After Encoding: SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			}
 		} else {
 			printk("Flags: %d\n",flags);
-			printk(KERN_INFO "SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
+			printk(KERN_INFO "Received: SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 			//print_all_nodes();
 			curr_node=find_node(iph->saddr, tcph->source, iph->daddr, tcph->dest, in->name,tcph->seq, tcph->ack_seq);
 			if(curr_node==NULL){
@@ -381,7 +384,6 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 			}
 			size=ntohs(iph->tot_len) - (tcph->doff*4) - (iph->ihl*4);
 			if(curr_node->subnet==0 || (curr_node->subnet==1 && strcmp(curr_node->og_dev,in->name)!=0) || (curr_node->subnet==2 && strcmp(curr_node->og_dev,in->name)==0)){
-				printk(KERN_INFO "Decoding SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 				tcph->seq=decode_uint32(tcph->seq);
 				tcph->ack_seq=decode_uint32(tcph->ack_seq);
 				printk(KERN_INFO "Decoding SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
@@ -471,7 +473,6 @@ unsigned int hook_func_fwd(const struct nf_hook_ops *ops, struct sk_buff *skb, c
 
 			}*/
 			if(curr_node->subnet==0 || (curr_node->subnet==1 && strcmp(curr_node->og_dev,in->name)==0) || (curr_node->subnet==2 && strcmp(curr_node->og_dev,in->name)!=0)){
-				printk(KERN_INFO "Encoding SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
 				tcph->seq=encode_uint32(tcph->seq);
 				tcph->ack_seq=encode_uint32(tcph->ack_seq);
 				printk(KERN_INFO "Encoding SEQ=%x, ACK=%x\n",tcph->seq,tcph->ack_seq);
