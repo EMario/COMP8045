@@ -169,8 +169,8 @@ struct tcp_log* find_node(const char in[IFNAMSIZ],const char out[IFNAMSIZ],uint3
 		if(strcmp(curr->in,in)==0 && strcmp(curr->out,out)==0){
 			if(strcmp(curr->subnet,in)!=0){
 				printk(KERN_INFO "Decoding 1...\n");
-				//dec_seq=decode_uint32(seq);
-				//dec_ack=decode_uint32(ack);
+				dec_seq=decode_uint32(dec_seq);
+				dec_ack=decode_uint32(dec_ack);
 			}
 			if(curr->seq_ack==dec_ack && (curr->seq==dec_seq || (flags==10010 && curr->flags==10010))){
 				return curr;
@@ -178,8 +178,8 @@ struct tcp_log* find_node(const char in[IFNAMSIZ],const char out[IFNAMSIZ],uint3
 		} else if(strcmp(curr->in,out)==0 && strcmp(curr->out,in)==0) {
 			if(strcmp(curr->subnet,in)!=0){
 				printk(KERN_INFO "Decoding 2...\n");
-				//dec_seq=decode_uint32(dec_seq);
-				//dec_ack=decode_uint32(dec_ack);
+				dec_seq=decode_uint32(dec_seq);
+				dec_ack=decode_uint32(dec_ack);
 			}
 			if(curr->seq_ack==dec_seq && (curr->seq==dec_ack || (flags==10010 && curr->flags==10010))){
 				return curr;
@@ -299,9 +299,14 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 			printk(KERN_INFO "Input Device directly connected!!!\n");
 			strcpy(subnet,in->name);
 		} else {
-			printk(KERN_INFO "Decoding 3...\n");
-			//tcph->seq=decode_uint32(tcph->seq);
-			//tcph->ack_seq=decode_uint32(tcph->ack_seq);
+			printk(KERN_INFO "Decoding Received SEQ and ACK...\n");
+			printk(KERN_INFO "Received SEQ: %x, Received ACK:%x\n",tcph->seq,tcph->ack_seq);
+			tcph->seq=decode_uint32(tcph->seq);
+			tcph->ack_seq=decode_uint32(tcph->ack_seq);
+			printk(KERN_INFO "Decoded SEQ: %x, Decoded ACK:%x\n",tcph->seq,tcph->ack_seq);
+		}
+		if(tcph->ack_seq!=0){
+			return -1;
 		}
 		neigh=ipv4_neigh_lookup(&iph->daddr,out);
 		if(neigh!=NULL){			
@@ -324,9 +329,11 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 		add_log(iph->saddr,tcph->dest,tcph->seq,-2,-1,aux,-1,-1,flags,in->name,out->name,subnet);
 		add_log(iph->saddr,tcph->dest,-2,aux,-1,-1,tcph->seq,-2,10010,out->name,in->name,subnet);
 		if(strcmp(subnet,out->name)!=0){
-			printk(KERN_INFO "Encoding 1...\n");
-			//tcph->seq=encode_uint32(tcph->seq);
-			//tcph->ack_seq=encode_uint32(tcph->ack_seq);
+			printk(KERN_INFO "Encoding...\n");
+			printk(KERN_INFO "Received SEQ: %x, Received ACK:%x\n",tcph->seq,tcph->ack_seq);
+			tcph->seq=encode_uint32(tcph->seq);
+			tcph->ack_seq=encode_uint32(tcph->ack_seq);
+			printk(KERN_INFO "Encoded SEQ: %x, Encoded ACK:%x\n",tcph->seq,tcph->ack_seq);
 		}
 	} else {
 		printk(KERN_INFO "Packet number: %i\n",flags);
@@ -336,9 +343,11 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 			return -1;
 		}
 		if(strcmp(curr_log->subnet,in->name)!=0){
-			printk(KERN_INFO "Decoding 4...\n");
-			//tcph->seq=decode_uint32(tcph->seq);
-			//tcph->ack_seq=decode_uint32(tcph->ack_seq);
+			printk(KERN_INFO "Decoding...\n");
+			printk(KERN_INFO "Received SEQ: %x, Received ACK:%x\n",tcph->seq,tcph->ack_seq);
+			tcph->seq=decode_uint32(tcph->seq);
+			tcph->ack_seq=decode_uint32(tcph->ack_seq);
+			printk(KERN_INFO "Decoded SEQ: %x, Decoded ACK:%x\n",tcph->seq,tcph->ack_seq);
 		}
 		if(tcph->fin==1 || tcph->syn==1){ //SYN or FIN
 			t_size++;	
@@ -356,7 +365,6 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 			} else { 
 				if(tcph->psh==1){
 					curr_log->ack_recv=1;	
-					//Delete logs, before previous entry if ack is received
 				}
 				aux=switch_order(tcph->seq);
 				aux=aux+t_size;
@@ -368,17 +376,16 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 		} else {
 			if(tcph->ack==1){
 				curr_log->ack_recv=1;
-				/*if(curr_log->flags==10001){
-
-				}*/
 			}
 		}
 		printk(KERN_INFO "SUBNET:%s\n",curr_log->subnet);
 		printk(KERN_INFO "dev:%s->%s\n",in->name,out->name);
 		if(strcmp(curr_log->subnet,out->name)!=0){
-			printk(KERN_INFO "Encoding 2...\n");
-			//tcph->seq=encode_uint32(tcph->seq);
-			//tcph->ack_seq=encode_uint32(tcph->ack_seq);
+			printk(KERN_INFO "Encoding...\n");
+			printk(KERN_INFO "Received SEQ: %x, Received ACK:%x\n",tcph->seq,tcph->ack_seq);
+			tcph->seq=encode_uint32(tcph->seq);
+			tcph->ack_seq=encode_uint32(tcph->ack_seq);
+			printk(KERN_INFO "Encoded SEQ: %x, Encoded ACK:%x\n",tcph->seq,tcph->ack_seq);
 		}
 	}
 	return 0;
