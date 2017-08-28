@@ -1,8 +1,7 @@
-ccflags-y := -I/usr/include/
-obj-m := bpcc.o 
+KDIR ?= /lib/modules/$(shell uname -r)/build
 
 default:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(shell pwd) modules
+	$(MAKE) -C $(KDIR) M=$(shell pwd) modules
 
 clean:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(shell pwd) clean
+	$(MAKE) -C $(KDIR) M=$(shell pwd) clean
