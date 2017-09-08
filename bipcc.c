@@ -46,6 +46,7 @@ MODULE_DESCRIPTION("Bidirectional Passive Covert Channel");
 
 struct tcp_log { //Linked list which will allow us to keep track of the packets
 	uint32_t saddr; //Key Source Address
+	uint16_t sport; //Key Source port
 	uint16_t dport; //Key Destination Port
 	uint32_t seq; 
 	uint32_t seq_ack;
@@ -73,6 +74,7 @@ struct tcp_log* head=NULL;
 struct dest_log* d_head=NULL;
 struct nf_hook_ops nfho_fwd;
 static short int debug_mode=0;
+static int CSUM_VAL=5;
 //static long int cooldown=10000000000;
 
 module_param(debug_mode,short,S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
@@ -104,6 +106,21 @@ uint32_t decode_uint32(uint32_t enc_value){
 	uint32_t dec_value;
 	dec_value=0xFFFFFFFF-enc_value;
 	return dec_value;
+}
+
+uint16_t csum16(const uint16_t *data,int size){
+	uint32_t sum;
+	uint16_t result;
+	sum=0x0;
+	while(size>0){
+		sum+=*data++;
+		size--;
+	}
+	sum=(sum>>16)+(sum & 0xffff);
+	sum=sum+(sum>>16);
+	result=(uint16_t)~sum;
+	return result;
+
 }
 
 void add_entry(uint32_t daddr,uint32_t dport){
@@ -288,6 +305,11 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 	struct tcp_log* curr_log;
 	int flags,aux,t_size;
 	char subnet[IFNAMSIZ]="";
+	uint16_t csum_data[]={0x0,tcph->source,tcph->dest,iph->id,iph->tot_len};
+	union{
+		uint16_t half[2];
+		uint32_t full;
+	}seq,ack;
 	flags=get_flags(tcph);
 	t_size=ntohs(iph->tot_len) - (tcph->doff*4) - (iph->ihl*4);
 	if(flags==10){
@@ -299,11 +321,19 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 			printk(KERN_INFO "Input Device directly connected!!!\n");
 			strcpy(subnet,in->name);
 		} else {
-			printk(KERN_INFO "Decoding Received SEQ and ACK...\n");
+			printk(KERN_INFO "Verifying SEQ and ACK...\n");
 			printk(KERN_INFO "Received SEQ: %x, Received ACK:%x\n",tcph->seq,tcph->ack_seq);
-			tcph->seq=decode_uint32(tcph->seq);
-			tcph->ack_seq=decode_uint32(tcph->ack_seq);
-			printk(KERN_INFO "Decoded SEQ: %x, Decoded ACK:%x\n",tcph->seq,tcph->ack_seq);
+			csum_data[0]=tcph->seq;
+			seq.half[0]=csum16(csum_data,CSUM_VAL);
+			csum_data[0]=tcph->seq>>16;
+			seq.half[1]=csum16(csum_data,CSUM_VAL);
+			csum_data[0]=tcph->seq;
+			ack.half[0]=csum16(csum_data,CSUM_VAL);
+			csum_data[0]=tcph->seq>>16;
+			ack.half[1]=csum16(csum_data,CSUM_VAL);
+			tcph->seq=seq.full;
+			tcph->ack_seq=ack.full;
+			printk(KERN_INFO "Checksum results SEQ: %x, ACK:%x\n",tcph->seq,tcph->ack_seq);
 		}
 		if(tcph->ack_seq!=0){
 			return -1;
@@ -329,14 +359,22 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 		add_log(iph->saddr,tcph->dest,tcph->seq,-2,-1,aux,-1,-1,flags,in->name,out->name,subnet);
 		add_log(iph->saddr,tcph->dest,-2,aux,-1,-1,tcph->seq,-2,10010,out->name,in->name,subnet);
 		if(strcmp(subnet,out->name)!=0){
-			printk(KERN_INFO "Encoding...\n");
-			printk(KERN_INFO "Received SEQ: %x, Received ACK:%x\n",tcph->seq,tcph->ack_seq);
-			tcph->seq=encode_uint32(tcph->seq);
-			tcph->ack_seq=encode_uint32(tcph->ack_seq);
-			printk(KERN_INFO "Encoded SEQ: %x, Encoded ACK:%x\n",tcph->seq,tcph->ack_seq);
+			printk(KERN_INFO "Executing SEQ and ACK...\n");
+			printk(KERN_INFO "Current SEQ: %x, ACK:%x\n",tcph->seq,tcph->ack_seq);
+			csum_data[0]=tcph->seq;
+			seq.half[0]=csum16(csum_data,CSUM_VAL);
+			csum_data[0]=tcph->seq>>16;
+			seq.half[1]=csum16(csum_data,CSUM_VAL);
+			csum_data[0]=tcph->seq;
+			ack.half[0]=csum16(csum_data,CSUM_VAL);
+			csum_data[0]=tcph->seq>>16;
+			ack.half[1]=csum16(csum_data,CSUM_VAL);
+			tcph->seq=seq.full;
+			tcph->ack_seq=ack.full;
+			printk(KERN_INFO "Checksum results SEQ: %x, ACK:%x\n",tcph->seq,tcph->ack_seq);
 		}
 	} else {
-		printk(KERN_INFO "Packet number: %i\n",flags);
+		printk(KERN_INFO "Packet number: %i\n",iph->id);
 		curr_log=find_node(in->name,out->name,tcph->seq,tcph->ack_seq,flags);
 		if(curr_log==NULL){
 			printk(KERN_INFO "Packet not found.\n");
