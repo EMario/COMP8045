@@ -60,6 +60,8 @@ struct tcp_log { //Linked list which will allow us to keep track of the packets
 	uint32_t daddr; 
 	uint16_t sport; 
 	uint16_t dport; 
+	uint16_t id;
+	short int print;
 	struct tcp_log* n_log;
 };
 
@@ -109,7 +111,7 @@ uint16_t csum16(const uint16_t *data,int size){
 
 }
 
-struct tcp_log* add_log(uint32_t saddr,uint32_t daddr,uint16_t sport,uint16_t dport, uint32_t seq, uint32_t seq_ack, uint32_t n_seq, uint32_t n_seq_ack, uint32_t p_seq, uint32_t p_seq_ack, int flags, const char in[IFNAMSIZ],const char out[IFNAMSIZ],const char subnet[IFNAMSIZ]){
+struct tcp_log* add_log(uint32_t saddr,uint32_t daddr,uint16_t sport,uint16_t dport, uint32_t seq, uint32_t seq_ack, uint32_t n_seq, uint32_t n_seq_ack, uint32_t p_seq, uint32_t p_seq_ack, int flags, uint16_t id, const char in[IFNAMSIZ],const char out[IFNAMSIZ],const char subnet[IFNAMSIZ]){
 	struct tcp_log *new_log = (struct tcp_log*) kmalloc (sizeof(struct tcp_log),GFP_USER);
 	new_log->saddr=saddr;
 	new_log->daddr=daddr; 
@@ -122,11 +124,13 @@ struct tcp_log* add_log(uint32_t saddr,uint32_t daddr,uint16_t sport,uint16_t dp
 	new_log->p_seq=p_seq;
 	new_log->p_seq_ack=p_seq_ack;
 	new_log->flags=flags; 
+	new_log->id=id;
 	strcpy(new_log->in,in);
 	strcpy(new_log->out,out);
-	new_log->ack_recv=0;
+	new_log->ack_recv=0;	
+	new_log->print=0;
 	strcpy(new_log->subnet,subnet);
-	new_log->n_log=head;	
+	new_log->n_log=head;
 	head=new_log;
 	return new_log;
 }
@@ -148,15 +152,44 @@ void print_logs(void){
 	}
 	while(cont==0){
 		printk(KERN_INFO "--LOG--\n");
-		printk(KERN_INFO "SOURCE:%x DEST:%x FLAGS:%d\n",curr->saddr,curr->daddr,curr->flags);
-		printk(KERN_INFO "SEQ=%x NSEQ=%x PSEQ=%x IN=%s\n",curr->seq,curr->n_seq,curr->p_seq,curr->in);
-		printk(KERN_INFO "ACK=%x NACK=%x PACK=%x OUT=%s\n",curr->seq_ack,curr->n_seq_ack,curr->p_seq_ack,curr->out);
+		printk(KERN_INFO "FLAGS:%d ID:%x",curr->flags,curr->id);
+		printk(KERN_INFO "SOURCE IP: %x DEST IP: %x\n",curr->saddr,curr->daddr);
+		printk(KERN_INFO "SOURCE PORT: %x DEST PORT: %x\n",curr->sport,curr->dport);
+		printk(KERN_INFO "PREV_SEQ:%x SEQ:%x NEXT_SEQ: %x\n",curr->p_seq,curr->seq,curr->n_seq);
+		printk(KERN_INFO "PREV_ACK:%x ACK:%x NEXT_ACK: %x\n",curr->p_seq_ack,curr->seq_ack,curr->n_seq_ack);
 		if(curr->n_log==NULL){
 			cont=1;
 		} else {
 			curr=curr->n_log;
 		}
 	}
+}
+
+
+void print_remains(void){
+	struct tcp_log *curr = head;
+	int cont=0;
+	if(curr==NULL){
+		return;
+	}
+	printk(KERN_INFO "******************************************************\n");
+	printk(KERN_INFO "SHOWING UNFINISHED TRANSMISSIONS...");
+	while(cont==0){
+		if(curr->print==0){
+			printk(KERN_INFO "--LOG--\n");
+			printk(KERN_INFO "FLAGS:%d ID:%x",curr->flags,curr->id);
+			printk(KERN_INFO "SOURCE IP: %x DEST IP: %x\n",curr->saddr,curr->daddr);
+			printk(KERN_INFO "SOURCE PORT: %x DEST PORT: %x\n",curr->sport,curr->dport);
+			printk(KERN_INFO "PREV_SEQ:%x SEQ:%x NEXT_SEQ: %x\n",curr->p_seq,curr->seq,curr->n_seq);
+			printk(KERN_INFO "PREV_ACK:%x ACK:%x NEXT_ACK: %x\n",curr->p_seq_ack,curr->seq_ack,curr->n_seq_ack);
+		}
+		if(curr->n_log==NULL){
+			cont=1;
+		} else {
+			curr=curr->n_log;
+		}
+	}
+	printk(KERN_INFO "******************************************************\n");
 }
 
 
@@ -168,14 +201,10 @@ struct tcp_log* find_node(const char in[IFNAMSIZ],const char out[IFNAMSIZ],uint3
 	}
 	while(cont==0){
 		if(strcmp(curr->in,in)==0 && strcmp(curr->out,out)==0){
-			//printk(KERN_INFO "%s: %x %x",in,curr->seq_ack,seq_ack);
-			//printk(KERN_INFO "%s: %x %x",out,curr->seq,seq);
 			if(curr->seq_ack==seq_ack && (curr->seq==seq || (flags==10010 && curr->flags==10010))){
 				return curr;
 			}
 		} else if(strcmp(curr->in,out)==0 && strcmp(curr->out,in)==0) {
-			//printk(KERN_INFO "%s: %x %x",out,curr->seq_ack,seq);
-			//printk(KERN_INFO "%s: %x %x",in,curr->seq,seq_ack);
 			if(curr->seq_ack==seq && (curr->seq==seq_ack || (flags==10010 && curr->flags==10010))){
 				return curr;
 			}		
@@ -193,11 +222,12 @@ void print_trace_logs(struct tcp_log *last){
 	struct tcp_log *curr=last;
 	printk(KERN_INFO "******************************\n");
 	printk(KERN_INFO "--------LOG LAST ENTRY--------\n");
-	printk(KERN_INFO "FLAGS:%d",curr->flags);
+	printk(KERN_INFO "FLAGS:%d ID:%x",curr->flags,curr->id);
 	printk(KERN_INFO "SOURCE IP: %x DEST IP: %x\n",curr->saddr,curr->daddr);
 	printk(KERN_INFO "SOURCE PORT: %x DEST PORT: %x\n",curr->sport,curr->dport);
 	printk(KERN_INFO "PREV_SEQ:%x SEQ:%x NEXT_SEQ: %x\n",curr->p_seq,curr->seq,curr->n_seq);
 	printk(KERN_INFO "PREV_ACK:%x ACK:%x NEXT_ACK: %x\n",curr->p_seq_ack,curr->seq_ack,curr->n_seq_ack);
+	curr->print=1;
 	while(curr->p_seq!=-1 && curr->p_seq_ack!=-1){
 		curr=find_node(curr->in,curr->out,curr->p_seq,curr->p_seq_ack,0);
 		if(curr==NULL){
@@ -205,11 +235,12 @@ void print_trace_logs(struct tcp_log *last){
 			return;
 		} else {
 			printk(KERN_INFO "--------LOG ENTRY--------\n");
+			printk(KERN_INFO "FLAGS:%d ID:%x",curr->flags,curr->id);
 			printk(KERN_INFO "SOURCE IP: %x DEST IP: %x\n",curr->saddr,curr->daddr);
 			printk(KERN_INFO "SOURCE PORT: %x DEST PORT: %x\n",curr->sport,curr->dport);
 			printk(KERN_INFO "PREV_SEQ:%x SEQ:%x NEXT_SEQ: %x\n",curr->p_seq,curr->seq,curr->n_seq);
 			printk(KERN_INFO "PREV_ACK:%x ACK:%x NEXT_ACK: %x\n",curr->p_seq_ack,curr->seq_ack,curr->n_seq_ack);
-			
+			curr->print=1;			
 		}
 	}
 	printk(KERN_INFO "******************************\n");
@@ -358,8 +389,8 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 		aux=switch_order(tcph->seq);
 		aux=aux+1;
 		aux=switch_order(aux);
-		add_log(iph->saddr,iph->daddr,tcph->source,tcph->dest,tcph->seq,0,aux,-1,-1,-1,flags,in->name,out->name,subnet);
-		add_log(iph->daddr,iph->saddr,tcph->dest,tcph->source,-1,aux,-1,-1,0,tcph->seq,10010,out->name,in->name,subnet);
+		add_log(iph->saddr,iph->daddr,tcph->source,tcph->dest,tcph->seq,0,aux,-1,-1,-1,flags,iph->id,in->name,out->name,subnet);
+		add_log(iph->daddr,iph->saddr,tcph->dest,tcph->source,-1,aux,-1,-1,0,tcph->seq,10010,0,out->name,in->name,subnet);
 	} else {
 		if(tcph->fin==1 || tcph->syn==1){ //SYN or FIN
 			t_size++;	
@@ -369,20 +400,21 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 		if(t_size>0){
 			if(curr_log==NULL){
 				printk(KERN_INFO "Current packet not found.\n");
-				curr_log=add_log(iph->saddr,iph->daddr,tcph->source,tcph->dest,tcph->seq,tcph->ack_seq,-1,-1,-1,-1,flags,in->name,out->name,subnet);
+				curr_log=add_log(iph->saddr,iph->daddr,tcph->source,tcph->dest,tcph->seq,tcph->ack_seq,-1,-1,-1,-1,flags,iph->id,in->name,out->name,subnet);
 			} else {
 				printk(KERN_INFO "Packet Found!!!\n");
 			}
 			if(flags==10010){
 				curr_log->ack_recv=1;
 				curr_log->seq=tcph->seq;
+				curr_log->id=iph->id;
 				aux=switch_order(tcph->seq);
 				aux=aux+1;
 				aux=switch_order(aux);
 				next_log=find_node(out->name,in->name,tcph->ack_seq,aux,10000);
 				if(next_log==NULL){
 					printk(KERN_INFO "Next Log not found.\n");
-					next_log=add_log(iph->saddr,iph->daddr,tcph->source,tcph->dest,tcph->ack_seq,aux,-1,-1,curr_log->seq_ack,curr_log->seq,10000,out->name,in->name,subnet);
+					next_log=add_log(iph->saddr,iph->daddr,tcph->source,tcph->dest,tcph->ack_seq,aux,-1,-1,curr_log->seq_ack,curr_log->seq,10000,0,out->name,in->name,subnet);
 				} else {
 					printk(KERN_INFO "Next Log found.\n");
 					next_log->p_seq=curr_log->seq_ack;
@@ -401,6 +433,7 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 				if(tcph->psh==1){
 					curr_log->ack_recv=1;	
 				}
+				curr_log->id=iph->id;
 				aux=switch_order(tcph->seq);
 				aux=aux+t_size;
 				aux=switch_order(aux);
@@ -412,9 +445,9 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 				if(next_log==NULL){
 					printk(KERN_INFO "Next Log not found.\n");
 					if(strcmp(in->name,curr_log->out)==0){
-						add_log(iph->saddr,iph->daddr,tcph->source,tcph->dest,tcph->ack_seq,aux,-1,-1,curr_log->seq,curr_log->seq_ack,flags,out->name,in->name,subnet);
+						add_log(iph->saddr,iph->daddr,tcph->source,tcph->dest,tcph->ack_seq,aux,-1,-1,curr_log->seq,curr_log->seq_ack,flags,0,out->name,in->name,subnet);
 					} else {
-						add_log(iph->saddr,iph->daddr,tcph->source,tcph->dest,tcph->ack_seq,aux,-1,-1,curr_log->seq_ack,curr_log->seq,flags,out->name,in->name,subnet);
+						add_log(iph->saddr,iph->daddr,tcph->source,tcph->dest,tcph->ack_seq,aux,-1,-1,curr_log->seq_ack,curr_log->seq,flags,0,out->name,in->name,subnet);
 					}
 				} else {
 					printk(KERN_INFO "Next Log found.\n");
@@ -431,13 +464,15 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 			}
 		} else {
 			if(curr_log==NULL){
-				return -1;
+				printk(KERN_INFO "ACK unknown packet.\n");
+				curr_log=add_log(iph->saddr,iph->daddr,tcph->source,tcph->dest,tcph->seq,tcph->ack_seq,-1,-1,-1,-1,flags,iph->id,in->name,out->name,subnet);
 			}
 			if(tcph->ack==1){
 				curr_log->ack_recv=1;
 			}
 			if(curr_log->flags==10001 && flags==10000){
 				print_trace=1;
+				curr_log->id=iph->id;
 			}
 		}
 	}
@@ -501,7 +536,7 @@ static int __init start(void){
 
 static void __exit cleanup(void){
 	nf_unregister_hook(&nfho_fwd);
-	print_logs();
+	print_remains();
 	erase_logs();
 	printk(KERN_INFO "...Removing Covert Channel.\n");
 }
