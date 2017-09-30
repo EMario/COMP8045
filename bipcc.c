@@ -451,8 +451,13 @@ int handle_tcp_logs(struct iphdr* iph,struct tcphdr* tcph,const struct net_devic
 					}
 				} else {
 					printk(KERN_INFO "Next Log found.\n");
-					next_log->p_seq=curr_log->seq_ack;
-					next_log->p_seq_ack=curr_log->seq;
+					if(strcmp(in->name,curr_log->out)==0){
+						next_log->p_seq=curr_log->seq_ack;
+						next_log->p_seq_ack=curr_log->seq;
+					} else {
+						next_log->p_seq=curr_log->seq;
+						next_log->p_seq_ack=curr_log->seq_ack;
+					}
 				}
 				if(strcmp(in->name,curr_log->out)==0){
 					curr_log->n_seq=tcph->ack_seq;
